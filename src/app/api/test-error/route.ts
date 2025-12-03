@@ -103,7 +103,7 @@ export async function POST(request: Request) {
     }
   } catch (error) {
     // Extract citation number from error message if available
-    const citationMatch = error instanceof Error && error.message.match(/Citation: (.+)$/);
+    const citationMatch = error instanceof Error && error.message.match(/Citation: ([A-Za-z0-9-_]+)$/);
     const citationNumber = citationMatch ? citationMatch[1] : "UNKNOWN";
 
     Sentry.withScope((scope) => {
