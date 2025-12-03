@@ -55,7 +55,7 @@ export default function SentryDemoPage() {
         break;
 
       case "apiError":
-        const response = await fetch("/api/test-error");
+        const response = await fetch(`/api/test-error?citation=${encodeURIComponent(citationNumber)}`);
         if (!response.ok) {
           const data = await response.json();
           throw new Error(data.error || "API Error");

@@ -59,13 +59,6 @@ export async function GET(request: Request) {
       name: "GET /api/products",
     },
     async () => {
-      // Add context
-      Sentry.setContext("products_api", {
-        total_products: products.length,
-        requested_delay: delay,
-        shouldFail,
-      });
-
       // Simulate network delay if requested
       if (delay > 0) {
         await Sentry.startSpan(
@@ -82,7 +75,19 @@ export async function GET(request: Request) {
       // Simulate failure for testing
       if (shouldFail) {
         const error = new Error("Products API intentionally failed");
-        Sentry.captureException(error);
+        
+        Sentry.withScope((scope) => {
+          scope.setContext("products_api", {
+            total_products: products.length,
+            requested_delay: delay,
+            shouldFail,
+            endpoint: "/api/products",
+            timestamp: new Date().toISOString(),
+          });
+          scope.setTag("api_error", "products_fetch_failed");
+          Sentry.captureException(error);
+        });
+
         return NextResponse.json(
           { error: "Failed to fetch products" },
           { status: 500 }
@@ -118,11 +123,13 @@ export async function POST(request: Request) {
 
     // Validate required fields
     if (!name || !price) {
-      Sentry.addBreadcrumb({
-        category: "validation",
-        message: "Product creation validation failed",
-        level: "warning",
-        data: { name, price },
+      Sentry.withScope((scope) => {
+        scope.addBreadcrumb({
+          category: "validation",
+          message: "Product creation validation failed",
+          level: "warning",
+          data: { name, price },
+        });
       });
 
       return NextResponse.json(
@@ -140,17 +147,22 @@ export async function POST(request: Request) {
       citationNumber: citationNumber || `CIT-PROD-${String(products.length + 1).padStart(3, "0")}`,
     };
 
-    // Set context for the created product
-    Sentry.setContext("product_created", {
-      product_id: newProduct.id,
-      citation_number: newProduct.citationNumber,
-    });
-
-    Sentry.addBreadcrumb({
-      category: "product",
-      message: "New product created",
-      level: "info",
-      data: newProduct,
+    // Use withScope to set context for the created product
+    Sentry.withScope((scope) => {
+      scope.setContext("product_created", {
+        product_id: newProduct.id,
+        citation_number: newProduct.citationNumber,
+      });
+      scope.setContext("citation", {
+        citation_number: newProduct.citationNumber,
+      });
+      scope.setTag("citation_number", newProduct.citationNumber);
+      scope.addBreadcrumb({
+        category: "product",
+        message: "New product created",
+        level: "info",
+        data: newProduct,
+      });
     });
 
     return NextResponse.json({
@@ -158,7 +170,16 @@ export async function POST(request: Request) {
       product: newProduct,
     });
   } catch (error) {
-    Sentry.captureException(error);
+    Sentry.withScope((scope) => {
+      scope.setContext("products_api", {
+        endpoint: "/api/products",
+        method: "POST",
+        error: "Failed to create product",
+        timestamp: new Date().toISOString(),
+      });
+      Sentry.captureException(error);
+    });
+
     return NextResponse.json(
       { error: "Failed to create product" },
       { status: 500 }
