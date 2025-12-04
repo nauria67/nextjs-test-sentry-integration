@@ -18,21 +18,31 @@ export default function SentryDemoPage() {
   const [lastTriggered, setLastTriggered] = useState<string | null>(null);
 
   const triggerError = async (type: ErrorType) => {
+    // Add breadcrumb before triggering error
+    addBreadcrumb("user-action", `User triggered ${type} error`, {
+      citationNumber,
+      timestamp: new Date().toISOString(),
+    });
+
+    // Set citation context
+    setCitationContext(citationNumber, {
+      errorType: type,
+      triggeredAt: new Date().toISOString(),
+    });
+
+    setLastTriggered(`${type} at ${new Date().toLocaleTimeString()}`);
+
+    // Handle message capture separately (doesn't throw an error)
+    if (type === "message") {
+      captureMessageWithCitation(message, citationNumber, "error", {
+        source: "sentry-demo-page",
+      });
+      return;
+    }
+
+    // For actual errors, wrap in try-catch to manually capture
+    // (React doesn't catch errors in event handlers)
     try {
-      // Add breadcrumb before triggering error
-      addBreadcrumb("user-action", `User triggered ${type} error`, {
-        citationNumber,
-        timestamp: new Date().toISOString(),
-      });
-
-      // Set citation context
-      setCitationContext(citationNumber, {
-        errorType: type,
-        triggeredAt: new Date().toISOString(),
-      });
-
-      setLastTriggered(`${type} at ${new Date().toLocaleTimeString()}`);
-
       switch (type) {
         case "error":
           throw new Error(`Manual Error Test - Citation: ${citationNumber}`);
@@ -61,12 +71,6 @@ export default function SentryDemoPage() {
             const data = await response.json();
             throw new Error(data.error || "API Error");
           }
-          break;
-
-        case "message":
-          captureMessageWithCitation(message, citationNumber, "error", {
-            source: "sentry-demo-page",
-          });
           break;
       }
     } catch (error) {
