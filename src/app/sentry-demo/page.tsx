@@ -32,41 +32,62 @@ export default function SentryDemoPage() {
 
     setLastTriggered(`${type} at ${new Date().toLocaleTimeString()}`);
 
-    switch (type) {
-      case "error":
-        throw new Error(`Manual Error Test - Citation: ${citationNumber}`);
+    // Handle message capture separately (doesn't throw an error)
+    if (type === "message") {
+      captureMessageWithCitation(message, citationNumber, "error", {
+        source: "sentry-demo-page",
+      });
+      return;
+    }
 
-      case "typeError":
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const obj: any = null;
-        obj.method();
-        break;
+    // For actual errors, wrap in try-catch to manually capture
+    // (React doesn't catch errors in event handlers)
+    try {
+      switch (type) {
+        case "error":
+          throw new Error(`Manual Error Test - Citation: ${citationNumber}`);
 
-      case "asyncError":
-        await new Promise((_, reject) => {
-          setTimeout(
-            () =>
-              reject(
-                new Error(`Async Error Test - Citation: ${citationNumber}`)
-              ),
-            100
-          );
-        });
-        break;
+        case "typeError":
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const obj: any = null;
+          obj.method();
+          break;
 
-      case "apiError":
-        const response = await fetch("/api/test-error");
-        if (!response.ok) {
-          const data = await response.json();
-          throw new Error(data.error || "API Error");
-        }
-        break;
+        case "asyncError":
+          await new Promise((_, reject) => {
+            setTimeout(
+              () =>
+                reject(
+                  new Error(`Async Error Test - Citation: ${citationNumber}`)
+                ),
+              100
+            );
+          });
+          break;
 
-      case "message":
-        captureMessageWithCitation(message, citationNumber, "error", {
+        case "apiError":
+          const response = await fetch(`/api/test-error?citation=${encodeURIComponent(citationNumber)}`);
+          if (!response.ok) {
+            const data = await response.json();
+            throw new Error(data.error || "API Error");
+          }
+          break;
+      }
+    } catch (error) {
+      // Errors in event handlers are not caught by error boundaries
+      // We need to manually capture them with Sentry
+      captureErrorWithCitation(
+        error instanceof Error ? error : new Error(String(error)),
+        citationNumber,
+        {
+          errorType: type,
           source: "sentry-demo-page",
-        });
-        break;
+          triggeredAt: new Date().toISOString(),
+        }
+      );
+      
+      // Re-throw to show in console for debugging
+      throw error;
     }
   };
 

@@ -7,28 +7,40 @@ export async function GET(request: Request) {
   const shouldFail = searchParams.get("fail") === "true";
   const citationNumber = searchParams.get("citation") || "UNKNOWN";
 
-  // Set context for this request
-  Sentry.setContext("api_request", {
-    endpoint: "/api/test-error",
-    citation_number: citationNumber,
-    shouldFail,
-    timestamp: new Date().toISOString(),
-  });
-
-  // Add breadcrumb
-  Sentry.addBreadcrumb({
-    category: "api",
-    message: "Test error endpoint called",
-    level: "info",
-    data: { shouldFail, citationNumber },
-  });
-
   if (shouldFail || true) {
     // Always fail for demo purposes
     const error = new Error(
       `Server-side error triggered - Citation: ${citationNumber}`
     );
-    Sentry.captureException(error);
+    
+    // Use withScope to ensure context is attached to this specific error
+    Sentry.withScope((scope) => {
+      // Set citation context
+      scope.setContext("citation", {
+        citation_number: citationNumber,
+      });
+      
+      // Set API request context
+      scope.setContext("api_request", {
+        endpoint: "/api/test-error",
+        citation_number: citationNumber,
+        shouldFail,
+        timestamp: new Date().toISOString(),
+      });
+
+      // Add breadcrumb
+      scope.addBreadcrumb({
+        category: "api",
+        message: "Test error endpoint called",
+        level: "info",
+        data: { shouldFail, citationNumber },
+      });
+
+      // Set tag for easier filtering
+      scope.setTag("citation_number", citationNumber);
+
+      Sentry.captureException(error);
+    });
 
     return NextResponse.json(
       {
@@ -52,14 +64,6 @@ export async function POST(request: Request) {
     const body = await request.json();
     const { citationNumber, action } = body;
 
-    // Set context
-    Sentry.setContext("api_request", {
-      endpoint: "/api/test-error",
-      method: "POST",
-      citation_number: citationNumber,
-      action,
-    });
-
     // Simulate different error scenarios based on action
     switch (action) {
       case "validation_error":
@@ -69,7 +73,19 @@ export async function POST(request: Request) {
         );
 
       case "auth_error":
-        Sentry.captureMessage("Authentication error in test endpoint", "warning");
+        Sentry.withScope((scope) => {
+          scope.setContext("citation", {
+            citation_number: citationNumber,
+          });
+          scope.setContext("api_request", {
+            endpoint: "/api/test-error",
+            method: "POST",
+            citation_number: citationNumber,
+            action,
+          });
+          scope.setTag("citation_number", citationNumber);
+          Sentry.captureMessage("Authentication error in test endpoint", "warning");
+        });
         return NextResponse.json(
           { error: "Authentication required" },
           { status: 401 }
@@ -86,7 +102,24 @@ export async function POST(request: Request) {
         });
     }
   } catch (error) {
-    Sentry.captureException(error);
+    // Extract citation number from error message if available
+    const citationMatch = error instanceof Error && error.message.match(/Citation: ([A-Za-z0-9-_]+)$/);
+    const citationNumber = citationMatch ? citationMatch[1] : "UNKNOWN";
+
+    Sentry.withScope((scope) => {
+      scope.setContext("citation", {
+        citation_number: citationNumber,
+      });
+      scope.setContext("api_request", {
+        endpoint: "/api/test-error",
+        method: "POST",
+        citation_number: citationNumber,
+        timestamp: new Date().toISOString(),
+      });
+      scope.setTag("citation_number", citationNumber);
+      Sentry.captureException(error);
+    });
+
     return NextResponse.json(
       { error: "Internal server error" },
       { status: 500 }

@@ -48,23 +48,28 @@ export async function GET(request: Request) {
       name: "GET /api/citations",
     },
     async () => {
-      // Add context for this API call
-      Sentry.setContext("citations_api", {
-        endpoint: "/api/citations",
-        filters: { citationId, status },
-        timestamp: new Date().toISOString(),
-      });
-
       // If specific citation ID is requested
       if (citationId) {
         const citation = citations.find((c) => c.id === citationId);
 
         if (!citation) {
-          Sentry.addBreadcrumb({
-            category: "api",
-            message: "Citation not found",
-            level: "warning",
-            data: { citationId },
+          // Use withScope for not found error
+          Sentry.withScope((scope) => {
+            scope.setContext("citation", {
+              citation_number: citationId,
+            });
+            scope.setContext("citations_api", {
+              endpoint: "/api/citations",
+              filters: { citationId, status },
+              timestamp: new Date().toISOString(),
+            });
+            scope.setTag("citation_number", citationId);
+            scope.addBreadcrumb({
+              category: "api",
+              message: "Citation not found",
+              level: "warning",
+              data: { citationId },
+            });
           });
 
           return NextResponse.json(
@@ -72,13 +77,6 @@ export async function GET(request: Request) {
             { status: 404 }
           );
         }
-
-        // Set context with the found citation
-        Sentry.setContext("citation", {
-          citation_number: citation.id,
-          status: citation.status,
-          priority: citation.metadata.priority,
-        });
 
         return NextResponse.json({ citation });
       }
@@ -126,18 +124,20 @@ export async function POST(request: Request) {
       },
     };
 
-    // Set context for the created citation
-    Sentry.setContext("citation", {
-      citation_number: newCitation.id,
-      status: newCitation.status,
-      priority: newCitation.metadata.priority,
-    });
-
-    Sentry.addBreadcrumb({
-      category: "citation",
-      message: "New citation created",
-      level: "info",
-      data: { citationId: newCitation.id, title: newCitation.title },
+    // Use withScope to add context for this successful creation
+    Sentry.withScope((scope) => {
+      scope.setContext("citation", {
+        citation_number: newCitation.id,
+        status: newCitation.status,
+        priority: newCitation.metadata.priority,
+      });
+      scope.setTag("citation_number", newCitation.id);
+      scope.addBreadcrumb({
+        category: "citation",
+        message: "New citation created",
+        level: "info",
+        data: { citationId: newCitation.id, title: newCitation.title },
+      });
     });
 
     return NextResponse.json({
@@ -145,7 +145,16 @@ export async function POST(request: Request) {
       citation: newCitation,
     });
   } catch (error) {
-    Sentry.captureException(error);
+    Sentry.withScope((scope) => {
+      scope.setContext("citations_api", {
+        endpoint: "/api/citations",
+        method: "POST",
+        error: "Failed to create citation",
+        timestamp: new Date().toISOString(),
+      });
+      Sentry.captureException(error);
+    });
+    
     return NextResponse.json(
       { error: "Failed to create citation" },
       { status: 500 }
